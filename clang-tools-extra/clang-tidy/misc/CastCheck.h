@@ -20,6 +20,9 @@ namespace clang::tidy::misc {
 /// functional calls in MLIR. This is not a perfect check and is only a
 /// temporary piece of code to ease migration.
 class CastCheck : public ClangTidyCheck {
+private:
+  void printFixIt(CallExpr const *Call, StringRef ReplacementString);
+
 public:
   CastCheck(StringRef Name, ClangTidyContext *Context);
   bool isLanguageVersionSupported(const LangOptions &LangOpts) const override {

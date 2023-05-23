@@ -12,6 +12,7 @@
 #include "clang/ASTMatchers/ASTMatchFinder.h"
 #include "clang/Frontend/CompilerInstance.h"
 #include "clang/Lex/Lexer.h"
+#include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/ADT/StringRef.h"
 #include "llvm/Support/Casting.h"
@@ -20,6 +21,52 @@
 #include <string>
 
 using namespace clang::ast_matchers;
+using llvm::StringRef;
+
+namespace {
+std::string maybePrefixed(StringRef Func) {
+  std::string Prefix = "llvm::";
+  return (Prefix + Func).str();
+}
+
+std::string transformObj(StringRef Obj, StringRef Function, bool IsArrow) {
+  if (IsArrow) {
+    llvm::errs() << "Func: " << Function << " and Obj: " << Obj;
+    if (Function.trim().empty())
+      return (Obj + "*this").str();
+    return ("*" + Obj).str();
+  }
+  return Obj.str();
+}
+std::string transformFunction(StringRef Function, bool IsPointerUnion) {
+  llvm::errs() << "Transform func(" << Function << ")";
+  Function.consume_front("template ");
+  Function = Function.trim();
+  if (IsPointerUnion && Function.contains("dyn_cast") &&
+      !Function.contains("dyn_cast_if_present")) {
+    Function.consume_front("dyn_cast");
+    return maybePrefixed(("dyn_cast_if_present" + Function).str());
+  }
+  if (Function.contains("dyn_cast_or_null")) {
+    Function.consume_front("dyn_cast_or_null");
+    return maybePrefixed(("dyn_cast_if_present" + Function).str());
+  }
+  // Inside a class declaraction, so we have to prefix. Due to bad parsing
+  // logic elsewhere, Obj contains the function call string in these cases, so
+  // just return the prefix
+  if (Function.trim().empty())
+    return "llvm::";
+  return maybePrefixed(Function.str());
+}
+std::pair<std::string, std::string> splitCall(StringRef Call, bool IsArrow) {
+  if (Call.contains("...") && Call.contains("isa")) {
+    auto [Obj, Function] = IsArrow ? Call.rsplit("->isa") : Call.rsplit(".isa");
+    return std::make_pair(Obj.str(), ("isa" + Function).str());
+  }
+  auto [Obj, Function] = IsArrow ? Call.rsplit("->") : Call.rsplit(".");
+  return std::make_pair(Obj.str(), Function.str());
+}
+} // namespace
 
 namespace clang::tidy::misc {
 
@@ -37,66 +84,73 @@ void CastCheck::registerMatchers(MatchFinder *Finder) {
   // 3. The binding can be mostly ignored. I don't know what I'm doing, some
   //    binds only matched the beginning of the last token, so I did hacky
   //    string replacement instead of further understanding the code base.
-  //
-  // XXX: This should be a function instead of a macro.
-#define ADD_MATCHERS(BASE_TYPE)                                                \
-  Finder->addMatcher(                                                          \
-      callExpr(                                                                \
-          callee(memberExpr(hasObjectExpression(                               \
-                                expr(hasType(cxxRecordDecl(                    \
-                                         isSameOrDerivedFrom(BASE_TYPE))))     \
-                                    .bind("Obj")),                             \
-                            hasDeclaration(namedDecl(hasName("cast"))))        \
-                     .bind("Callee")))                                         \
-          .bind("Call"),                                                       \
-      this);                                                                   \
-  Finder->addMatcher(                                                          \
-      callExpr(                                                                \
-          callee(memberExpr(hasObjectExpression(                               \
-                                expr(hasType(cxxRecordDecl(                    \
-                                         isSameOrDerivedFrom(BASE_TYPE))))     \
-                                    .bind("Obj")),                             \
-                            hasDeclaration(namedDecl(hasName("dyn_cast"))))    \
-                     .bind("Callee")))                                         \
-          .bind("Call"),                                                       \
-      this);                                                                   \
-  Finder->addMatcher(                                                          \
-      callExpr(                                                                \
-          callee(memberExpr(hasObjectExpression(                               \
-                                expr(hasType(cxxRecordDecl(                    \
-                                         isSameOrDerivedFrom(BASE_TYPE))))     \
-                                    .bind("Obj")),                             \
-                            hasDeclaration(namedDecl(hasName("isa"))))         \
-                     .bind("Callee")))                                         \
-          .bind("Call"),                                                       \
-      this);                                                                   \
-  Finder->addMatcher(                                                          \
-      callExpr(                                                                \
-          callee(memberExpr(                                                   \
-                     hasObjectExpression(                                      \
-                         expr(hasType(cxxRecordDecl(                           \
-                                  isSameOrDerivedFrom(BASE_TYPE))))            \
-                             .bind("Obj")),                                    \
-                     hasDeclaration(namedDecl(hasName("dyn_cast_or_null"))))   \
-                     .bind("Callee")))                                         \
-          .bind("Call"),                                                       \
-      this);
-
+  auto AddMatchers = [&](std::string BaseType, std::string CalleeBind) {
+    Finder->addMatcher(
+        callExpr(
+            callee(memberExpr(hasDeclaration(namedDecl(allOf(
+                                  hasUnderlyingDecl(matchesName(
+                                      llvm::formatv("^{0}", BaseType).str())),
+                                  hasName("cast")))))
+                       .bind(CalleeBind)))
+            .bind("Call"),
+        this);
+    Finder->addMatcher(
+        callExpr(
+            callee(memberExpr(hasDeclaration(namedDecl(allOf(
+                                  hasUnderlyingDecl(matchesName(
+                                      llvm::formatv("^{0}", BaseType).str())),
+                                  hasName("dyn_cast")))))
+                       .bind(CalleeBind)))
+            .bind("Call"),
+        this);
+    Finder->addMatcher(
+        callExpr(
+            callee(memberExpr(hasDeclaration(namedDecl(allOf(
+                                  hasUnderlyingDecl(matchesName(
+                                      llvm::formatv("^{0}", BaseType).str())),
+                                  hasName("isa")))))
+                       .bind(CalleeBind)))
+            .bind("Call"),
+        this);
+    Finder->addMatcher(
+        callExpr(
+            callee(memberExpr(hasDeclaration(namedDecl(allOf(
+                                  hasUnderlyingDecl(matchesName(
+                                      llvm::formatv("^{0}", BaseType).str())),
+                                  hasName("dyn_cast_or_null")))))
+                       .bind(CalleeBind)))
+            .bind("Call"),
+        this);
+  };
   // Add matchers for the following list of all classes that support functional
   // casting (as far as I know).
-  ADD_MATCHERS("::mlir::Attribute");
-  ADD_MATCHERS("::mlir::Location");
-  ADD_MATCHERS("::mlir::Op");
-  ADD_MATCHERS("::mlir::Type");
-  ADD_MATCHERS("::mlir::Value");
+  AddMatchers("::mlir::Attribute", "Callee");
+  // AddMatchers("::mlir::Location");
+  AddMatchers("::mlir::Op", "Callee");
+  AddMatchers("::mlir::Type", "Callee");
+  AddMatchers("::mlir::Value", "Callee");
+  AddMatchers("::mlir::OpFoldResult", "Callee");
+  AddMatchers("::llvm::PointerUnion", "PUCallee");
+}
 
-#undef ADD_MATCHERS
+void CastCheck::printFixIt(CallExpr const *Call, StringRef ReplacementString) {
+  SourceRange CallRange = Call->getSourceRange();
+  diag(CallRange.getBegin(),
+       "Casting call is using methods instead of functions "
+       "https://mlir.llvm.org/deprecation/")
+      << FixItHint::CreateReplacement(CallRange, ReplacementString);
 }
 
 void CastCheck::check(const MatchFinder::MatchResult &Result) {
   // Get some matched tokens
   const auto *Call = Result.Nodes.getNodeAs<CallExpr>("Call");
   const auto *Callee = Result.Nodes.getNodeAs<MemberExpr>("Callee");
+  bool IsPointerUnion = false;
+  if (!Callee) {
+    IsPointerUnion = true;
+    Callee = Result.Nodes.getNodeAs<MemberExpr>("PUCallee");
+    assert(Callee && "The binding on the MemberExpr is using an unknown name");
+  }
 
   // Get the string matching the entire matched object + method call
   SourceRange Range = Call->getSourceRange();
@@ -104,6 +158,10 @@ void CastCheck::check(const MatchFinder::MatchResult &Result) {
   llvm::StringRef Src = Lexer::getSourceText(
       CharSourceRange::getCharRange(Range), *Result.SourceManager,
       Result.Context->getLangOpts());
+  bool IsArrow = Callee->isArrow();
+  auto [Obj, Function] = splitCall(Src, IsArrow);
+  Obj = transformObj(Obj, Function, IsArrow);
+  Function = transformFunction(Function, IsPointerUnion);
 
   // XXX: Everything below is ugly and copy pasted instead of using helper
   // functions or more carefully ordering the code.
@@ -117,36 +175,12 @@ void CastCheck::check(const MatchFinder::MatchResult &Result) {
 
   // An arrow needs to be replaced with a dereferenced object, so split on arrow
   // instead and add a *.
-  if (Callee->isArrow()) {
-    auto [Obj, Function] = Src.rsplit("->");
-    Function.consume_front("template");
-    std::string dst = (Function + "*" + Obj + ")").str();
-    diag(Range.getBegin(), "Call '%0' is using methods instead of functions "
-                           "https://mlir.llvm.org/deprecation/")
-        << Name << FixItHint::CreateReplacement(Call->getSourceRange(), dst);
-
-    return;
-  }
 
   // isa has a variadic form and my hack to use the last period then fails.
   // Instead match on `.isa`
-  if (Src.contains("...") && Src.contains("isa")) {
-    auto [Obj, Function] = Src.split(".isa");
-    Function.consume_front("template");
-    std::string dst = ("isa" + Function + "" + Obj + ")").str();
-    diag(Range.getBegin(), "Call '%0' is using methods instead of functions "
-                           "https://mlir.llvm.org/deprecation/")
-        << Name << FixItHint::CreateReplacement(Call->getSourceRange(), dst);
-    return;
-  }
-
   // This handles all the other cases that call the method on the object.
-  auto [Obj, Function] = Src.rsplit('.');
-  Function.consume_front("template");
-  std::string dst = (Function + "" + Obj + ")").str();
-  diag(Range.getBegin(), "Call '%0' is using methods instead of functions "
-                         "https://mlir.llvm.org/deprecation/")
-      << Name << FixItHint::CreateReplacement(Call->getSourceRange(), dst);
+  std::string dst = Function + Obj + ")";
+  printFixIt(Call, dst);
 }
 
 } // namespace clang::tidy::misc
