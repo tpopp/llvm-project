@@ -2003,9 +2003,9 @@ OpFoldResult BroadcastOp::fold(FoldAdaptor adaptor) {
   if (!adaptor.getSource())
     return {};
   auto vectorType = getResultVectorType();
-  if (adaptor.getSource().isa<IntegerAttr, FloatAttr>())
+  if (llvm::isa<IntegerAttr, FloatAttr>(adaptor.getSource()))
     return DenseElementsAttr::get(vectorType, adaptor.getSource());
-  if (auto attr = adaptor.getSource().dyn_cast<SplatElementsAttr>())
+  if (auto attr = llvm::dyn_cast<SplatElementsAttr>(adaptor.getSource()))
     return DenseElementsAttr::get(vectorType, attr.getSplatValue<Attribute>());
   return {};
 }
@@ -5145,7 +5145,8 @@ void vector::TransposeOp::build(OpBuilder &builder, OperationState &result,
 
 OpFoldResult vector::TransposeOp::fold(FoldAdaptor adaptor) {
   // Eliminate splat constant transpose ops.
-  if (auto attr = adaptor.getVector().dyn_cast_or_null<DenseElementsAttr>())
+  if (auto attr =
+          llvm::dyn_cast_if_present<DenseElementsAttr>(adaptor.getVector()))
     if (attr.isSplat())
       return attr.reshape(getResultVectorType());
 

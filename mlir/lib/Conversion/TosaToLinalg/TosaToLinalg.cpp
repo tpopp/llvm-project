@@ -1881,7 +1881,7 @@ public:
 
     auto addDynamicDimension = [&](Value source, int64_t dim) {
       auto dynamicDim = tensor::createDimValue(builder, loc, source, dim);
-      if (auto dimValue = dynamicDim.value().dyn_cast<Value>())
+      if (auto dimValue = llvm::dyn_cast_if_present<Value>(dynamicDim.value()))
         results.push_back(dimValue);
     };
 

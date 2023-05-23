@@ -190,7 +190,7 @@ DeletionKind LLVM::DbgDeclareOp::removeBlockingUses(
 
 static bool hasAllZeroIndices(LLVM::GEPOp gepOp) {
   return llvm::all_of(gepOp.getIndices(), [](auto index) {
-    auto indexAttr = index.template dyn_cast<IntegerAttr>();
+    auto indexAttr = llvm::dyn_cast_if_present<IntegerAttr>(index);
     return indexAttr && indexAttr.getValue() == 0;
   });
 }
