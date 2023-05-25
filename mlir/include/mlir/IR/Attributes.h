@@ -50,14 +50,18 @@ public:
   /// Casting utility functions. These are deprecated and will be removed,
   /// please prefer using the `llvm` namespace variants instead.
   template <typename... Tys>
+  LLVM_DEPRECATED("Use the functional form", "isa")
   bool isa() const;
   template <typename... Tys>
   bool isa_and_nonnull() const;
   template <typename U>
+  // dyn_cast is not marked deprecated due to interactions with TypeSwitch
   U dyn_cast() const;
   template <typename U>
+  LLVM_DEPRECATED("Use the functional form", "dyn_cast_or_null")
   U dyn_cast_or_null() const;
   template <typename U>
+  LLVM_DEPRECATED("Use the functional form", "cast")
   U cast() const;
 
   /// Return a unique identifier for the concrete attribute type. This is used

@@ -95,21 +95,25 @@ public:
   constexpr Value(detail::ValueImpl *impl = nullptr) : impl(impl) {}
 
   template <typename U>
+  LLVM_DEPRECATED("Use the functional form", "isa")
   bool isa() const {
     return llvm::isa<U>(*this);
   }
 
   template <typename U>
+  LLVM_DEPRECATED("Use the functional form", "dyn_cast")
   U dyn_cast() const {
     return llvm::dyn_cast<U>(*this);
   }
 
   template <typename U>
+  LLVM_DEPRECATED("Use the functional form", "dyn_cast_or_null")
   U dyn_cast_or_null() const {
     return llvm::dyn_cast_if_present<U>(*this);
   }
 
   template <typename U>
+  LLVM_DEPRECATED("Use the functional form", "cast")
   U cast() const {
     return llvm::cast<U>(*this);
   }
