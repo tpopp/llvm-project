@@ -90,7 +90,7 @@ def OffloadModuleInterface : OpInterface<"OffloadModuleInterface"> {
       /*methodName=*/"getFlags",
       (ins), [{}], [{
         if (Attribute flags = $_op->getAttr("omp.flags"))
-          return flags.dyn_cast_or_null<mlir::omp::FlagsAttr>();
+          return ::llvm::dyn_cast_or_null<mlir::omp::FlagsAttr>(flags);
         return nullptr;
       }]>,
       InterfaceMethod<
@@ -119,7 +119,7 @@ def OffloadModuleInterface : OpInterface<"OffloadModuleInterface"> {
       /*methodName=*/"getTarget",
       (ins), [{}], [{
         if (Attribute flags = $_op->getAttr("omp.target"))
-          return flags.dyn_cast_or_null<mlir::omp::TargetAttr>();
+          return ::llvm::dyn_cast_or_null<mlir::omp::TargetAttr>(flags);
         return nullptr;
       }]>,
     InterfaceMethod<

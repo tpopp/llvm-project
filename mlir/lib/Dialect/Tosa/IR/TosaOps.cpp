@@ -969,10 +969,11 @@ static LogicalResult ReduceInferReturnTypes(
       OpaqueProperties properties, RegionRange regions,                        \
       SmallVectorImpl<ShapedTypeComponents> &inferredReturnShapes) {           \
     Type inputType =                                                           \
-        operands.getType()[0].cast<TensorType>().getElementType();             \
-    return ReduceInferReturnTypes(operands.getShape(0), inputType,             \
-                                  attributes.get("axis").cast<IntegerAttr>(),  \
-                                  inferredReturnShapes);                       \
+        llvm::cast<TensorType>(operands.getType()[0]).getElementType();        \
+    return ReduceInferReturnTypes(                                             \
+        operands.getShape(0), inputType,                                       \
+        llvm::cast<IntegerAttr>(attributes.get("axis")),                       \
+        inferredReturnShapes);                                                 \
   }                                                                            \
   COMPATIBLE_RETURN_TYPES(OP)
 
