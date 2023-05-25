@@ -97,14 +97,18 @@ public:
   bool operator!() const { return impl == nullptr; }
 
   template <typename... Tys>
+  LLVM_DEPRECATED("Use the functional form", "isa")
   bool isa() const;
   template <typename... Tys>
   bool isa_and_nonnull() const;
   template <typename U>
+  // No deprecated here because LLVM::TypeSwitch calls dyn_cast when it exists
   U dyn_cast() const;
   template <typename U>
+  LLVM_DEPRECATED("Use the functional form", "dyn_cast_or_null")
   U dyn_cast_or_null() const;
   template <typename U>
+  LLVM_DEPRECATED("Use the functional form", "cast")
   U cast() const;
 
   /// Return a unique identifier for the concrete type. This is used to support
